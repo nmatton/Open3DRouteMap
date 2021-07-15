@@ -44,6 +44,8 @@ interactive: false
 var response = '';
 $.ajax({ type: "GET",
          url: "data/test.gpx",
+         //url: "data/Passo_dello_stelvio.gpx",
+         //url: "data/long_trail.gpx",
          async: false,
          success : function(text)
          {
@@ -54,6 +56,14 @@ $.ajax({ type: "GET",
 
 var gpxjson = toGeoJSON.gpx(response);
 myroute = gpxjson.features[0].geometry.coordinates;
+var data = {
+            'type': 'LineString',
+            'coordinates': [myroute[0]]
+            };
+var pts_data = {
+            'type': 'Point',
+            'coordinates': [myroute[0]]
+            };
 var targetRoute = myroute;
 // this is the path the camera will move along
 // simplify the target route
@@ -61,8 +71,13 @@ var options = {tolerance: 0.0085, highQuality: true};
 var simplified = turf.simplify(turf.lineString(targetRoute), options);
 // bezier transform to simplief
 var bezier = turf.bezierSpline(simplified,{sharpness:1})
-var cameraRoute = bezier.geometry.coordinates;
- 
+//var cameraRoute = bezier.geometry.coordinates;
+var cameraRouteTrace = turf.polygonToLine(turf.rewind(turf.buffer(turf.convex(turf.lineString(targetRoute)),1),{reverse:true}));
+var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
+var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
+var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+
+console.log(cameraRoute);
 // add terrain, sky, and line layers once the style has loaded
 map.on('load', function () {
 map.addSource('mapbox-dem', {
@@ -83,7 +98,7 @@ map.addLayer({
 });
 
 
-map.addSource('trace', {
+map.addSource('fixedtrace', {
 type: 'geojson',
 data: {
 'type': 'Feature',
@@ -96,11 +111,11 @@ data: {
 });
 map.addLayer({
 type: 'line',
-source: 'trace',
+source: 'fixedtrace',
 id: 'line',
 paint: {
 'line-color': 'orange',
-'line-width': 5
+'line-width': 1
 },
 layout: {
 'line-cap': 'round',
@@ -133,70 +148,142 @@ layout: {
 'line-join': 'round'
 }
 });
+
+// add a dynamic trace line
+map.addSource('trace', { type: 'geojson', data: data });
+map.addLayer({
+    'id': 'trace',
+    'type': 'line',
+    'source': 'trace',
+    'paint': {
+        'line-color': 'yellow',
+        'line-opacity': 0.75,
+        'line-width': 8,
+        'line-blur' : 4
+    }
+});
+
+
+// add main dot of position
+map.addSource('point', {
+'type': 'geojson',
+'data': pts_data
+});
+
+map.addLayer({
+'id': 'point',
+'source': 'point',
+'type': 'circle',
+'paint': {
+    'circle-radius': 15,
+    'circle-color': 'yellow',
+    'circle-blur': 0.75
+    }
+});
+
+
 });
 
 // wait for the terrain and sky to load before starting animation
 map.on('load', function () {
 var animationDuration = 80000;
-var cameraAltitude = 2000;
+var cameraAltitude = 15000;
+var cameraOffset = 0.02;
 // get the overall distance of each route so we can interpolate along them
+var simplifiedRouteDistance = turf.lineDistance(simplified);
 var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
-var cameraRouteDistance = turf.lineDistance(
-turf.lineString(cameraRoute)
-);
+var cameraRouteDistance = turf.lineDistance(turf.lineString(cameraRoute));
  
 var start;
- 
+console.log('start with blur 4 + pts + rewind')
 function frame(time) {
-if (!start) start = time;
-// phase determines how far through the animation we are
-var phase = (time - start) / animationDuration;
- 
-// phase is normalized between 0 and 1
-// when the animation is finished, reset start to loop the animation
-if (phase > 1) {
-// wait 1.5 seconds before looping
-setTimeout(function () {
-start = 0.0;
-}, 1500);
+    if (!start) start = time;
+    // phase determines how far through the animation we are
+    var phase = (time - start) / animationDuration;
+    //console.log(phase);
+
+    // phase is normalized between 0 (start) and 1 (end)
+    // when the animation is finished, reset start to loop the animation
+    if (phase > 1) {
+        // wait 1.5 seconds before looping
+        setTimeout(function () {
+            start = 0.0;
+        }, 1500);
+    }
+
+    // use the phase to get a point that is the appropriate distance along the route
+    // this approach syncs the camera and route positions ensuring they move
+    // at roughly equal rates even if they don't contain the same number of points
+
+    // identify the point on the "simplied" route to look at
+    // a simplified version of the road is used here to avoid camera jerks at
+    // small changes of direction
+    var alongRoute = turf.midpoint(turf.along(
+                                        turf.lineString(targetRoute),
+                                        routeDistance * phase
+                                        ),
+                                    turf.along(
+                                        simplified,
+                                        simplifiedRouteDistance * phase
+                                        )).geometry.coordinates;
+    /*var alongRoute = turf.along(
+        turf.lineString(targetRoute),
+        routeDistance * phase
+        ).geometry.coordinates;*/
+    // retrieve the linepath from the start to the point of the route to look at
+    if (phase>0) {
+        // update trace
+        data = turf.lineSliceAlong(turf.lineString(targetRoute),
+                                   0,
+                                   routeDistance * phase);
+        map.getSource('trace').setData(data);
+        // update point
+        pts_data = turf.along(turf.lineString(targetRoute),
+                              routeDistance * phase
+                              ).geometry.coordinates;
+        //console.log(pts_data);
+        map.getSource('point').setData({
+            'type': 'Point',
+            'coordinates': pts_data
+            });
+
+    }
+    // retrieve the position of the camera
+    if (phase > cameraOffset) {
+        var dist = cameraRouteDistance * (phase - cameraOffset);
+    } else {
+        var dist = 0;
+    }
+    var alongCamera = turf.along(
+        turf.lineString(cameraRoute),
+        dist
+        ).geometry.coordinates;
+
+    var camera = map.getFreeCameraOptions();
+
+    // set the position and altitude of the camera
+    camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+    {
+    lng: alongCamera[0],
+    lat: alongCamera[1]
+    },
+    cameraAltitude
+    );
+
+    // tell the camera to look at a point along the route
+    camera.lookAtPoint({
+    lng: alongRoute[0],
+    lat: alongRoute[1]
+    });
+
+    // update camera position and view angle
+    map.setFreeCameraOptions(camera);
+
+
+    window.requestAnimationFrame(frame);
 }
  
-// use the phase to get a point that is the appropriate distance along the route
-// this approach syncs the camera and route positions ensuring they move
-// at roughly equal rates even if they don't contain the same number of points
-var alongRoute = turf.along(
-turf.lineString(targetRoute),
-routeDistance * phase
-).geometry.coordinates;
- 
-var alongCamera = turf.along(
-turf.lineString(cameraRoute),
-cameraRouteDistance * phase
-).geometry.coordinates;
- 
-var camera = map.getFreeCameraOptions();
- 
-// set the position and altitude of the camera
-camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
-{
-lng: alongCamera[0],
-lat: alongCamera[1]
-},
-cameraAltitude
-);
- 
-// tell the camera to look at a point along the route
-camera.lookAtPoint({
-lng: alongRoute[0],
-lat: alongRoute[1]
-});
- 
-map.setFreeCameraOptions(camera);
- 
-window.requestAnimationFrame(frame);
-}
- 
-window.requestAnimationFrame(frame);
+window.requestAnimationFrame(frame); //https://developer.mozilla.org/fr/docs/Web/API/DOMHighResTimeStamp
 });
 </script>
  

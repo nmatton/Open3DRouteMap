@@ -26,7 +26,7 @@ body { margin: 0; padding: 0; }
 var map = new mapboxgl.Map({
 container: 'map',
 zoom: 9,
-center: [6.5615, 46.0598],
+center: [4.653582, 50.616459],
 style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
 });
 
@@ -70,7 +70,7 @@ var simplified = turf.simplify(turf.lineString(targetRoute), options);
 // bezier transform to simplief
 var bezier = turf.bezierSpline(simplified,{sharpness:1});
 var bezier2 = turf.bezierSpline(simplified,{sharpness:0.9});
-
+var poly = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));
 
 //var myroute = res.features[0].geometry.coordinates;
 // add terrain, sky, and line layers once the style has loaded
@@ -213,6 +213,31 @@ source: 'myroute',
 id: 'line5',
 paint: {
 'line-color': 'black',
+'line-width': 5
+},
+layout: {
+'line-cap': 'round',
+'line-join': 'round'
+}
+});
+
+map.addSource('newpath', {
+type: 'geojson',
+data: {
+'type': 'Feature',
+'properties': {},
+'geometry': {
+'type': 'LineString',
+'coordinates': poly.geometry.coordinates
+}
+}
+});
+map.addLayer({
+type: 'line',
+source: 'newpath',
+id: 'line6',
+paint: {
+'line-color': 'blue',
 'line-width': 5
 },
 layout: {
