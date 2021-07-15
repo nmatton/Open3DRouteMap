@@ -22,16 +22,7 @@ body { margin: 0; padding: 0; }
     // ADD YOUR ACCESS TOKEN FROM
     // https://account.mapbox.com
     mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
-var map = new mapboxgl.Map({
-container: 'map',
-zoom: 11.53,
-center: [4.653582, 50.616459],
-pitch: 35,
-bearing: 180,
-//style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
-style: 'mapbox://styles/mapbox-map-design/ckhqrf2tz0dt119ny6azh975y',
-interactive: false
-});
+
  
 // `routes` comes from https://docs.mapbox.com/mapbox-gl-js/assets/routes.js,
 // which has properties that are in the shape of an array of arrays that correspond
@@ -44,9 +35,9 @@ interactive: false
 // this is the path the camera will look at
 var response = '';
 $.ajax({ type: "GET",
-         //url: "data/test.gpx",
+         url: "data/test2.gpx",
          //url: "data/Passo_dello_stelvio.gpx",
-         url: "data/long_trail.gpx",
+         //url: "data/long_trail.gpx",
          async: false,
          success : function(text)
          {
@@ -93,7 +84,16 @@ if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute
 
 //var cameraRoute = bezier.geometry.coordinates;
 
-
+var map = new mapboxgl.Map({
+container: 'map',
+zoom: 11.53,
+center: [myroute[0][0],myroute[0][1]],
+pitch: 35,
+bearing: 180,
+//style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
+style: 'mapbox://styles/nmatton/ckr4xxvcg0hkx19mzverkky7s',
+interactive: false
+});
 
 
 console.log(cameraRoute);
@@ -117,7 +117,7 @@ map.addLayer({
 });
 
 
-map.addSource('fixedtrace', {
+/*map.addSource('fixedtrace', {
 type: 'geojson',
 data: {
 'type': 'Feature',
@@ -140,7 +140,7 @@ layout: {
 'line-cap': 'round',
 'line-join': 'round'
 }
-});
+});*/
 
 
 map.addSource('cameratrace', {
@@ -205,9 +205,9 @@ map.addLayer({
 
 // wait for the terrain and sky to load before starting animation
 map.on('load', function () {
-var animationDuration = 80000;
-var cameraAltitude = 15000;
-var cameraOffset = 0.02;
+var animationDuration = 150000;
+var cameraAltitude = 6000;
+var cameraOffset = 0;
 // get the overall distance of each route so we can interpolate along them
 var simplifiedRouteDistance = turf.lineDistance(simplified);
 var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
