@@ -23,12 +23,6 @@ body { margin: 0; padding: 0; }
     // ADD YOUR ACCESS TOKEN FROM
     // https://account.mapbox.com
     mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
-var map = new mapboxgl.Map({
-container: 'map',
-zoom: 9,
-center: [4.653582, 50.616459],
-style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
-});
 
 // `routes` comes from https://docs.mapbox.com/mapbox-gl-js/assets/routes.js,
 // which has properties that are in the shape of an array of arrays that correspond
@@ -67,11 +61,27 @@ var targetRoute = myroute;
 
 var options = {tolerance: 0.0085, highQuality: true};
 var simplified = turf.simplify(turf.lineString(targetRoute), options);
+//
+
 // bezier transform to simplief
 var bezier = turf.bezierSpline(simplified,{sharpness:1});
 var bezier2 = turf.bezierSpline(simplified,{sharpness:0.9});
-var poly = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));
 
+// alternative path
+var poly = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5));
+
+// transform to route path
+var cameraRouteTraceStart = turf.nearestPointOnLine(poly, turf.point([myroute[0][0],myroute[0][1]]))
+var cameraRoutepart1 = turf.lineSliceAlong(poly, cameraRouteTraceStart.properties.location, turf.length(poly)).geometry.coordinates;
+var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(poly, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates;
+
+var map = new mapboxgl.Map({
+container: 'map',
+zoom: 9,
+center: [myroute[0][0],myroute[0][1]],
+style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
+});
 //var myroute = res.features[0].geometry.coordinates;
 // add terrain, sky, and line layers once the style has loaded
 map.on('load', function () {
@@ -119,7 +129,7 @@ layout: {
 });
 
 
-/*map.addSource('cameratrace', {
+map.addSource('cameratrace', {
 type: 'geojson',
 data: {
 'type': 'Feature',
@@ -136,13 +146,13 @@ source: 'cameratrace',
 id: 'line2',
 paint: {
 'line-color': 'green',
-'line-width': 5
+'line-width': 8
 },
 layout: {
 'line-cap': 'round',
 'line-join': 'round'
 }
-});*/
+});
 
 
 map.addSource('simplifiedtrace', {
@@ -228,7 +238,7 @@ data: {
 'properties': {},
 'geometry': {
 'type': 'LineString',
-'coordinates': poly.geometry.coordinates
+'coordinates': cameraRoute
 }
 }
 });

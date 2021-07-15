@@ -28,7 +28,8 @@ zoom: 11.53,
 center: [4.653582, 50.616459],
 pitch: 35,
 bearing: 180,
-style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
+//style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
+style: 'mapbox://styles/mapbox-map-design/ckhqrf2tz0dt119ny6azh975y',
 interactive: false
 });
  
@@ -43,9 +44,9 @@ interactive: false
 // this is the path the camera will look at
 var response = '';
 $.ajax({ type: "GET",
-         url: "data/test.gpx",
+         //url: "data/test.gpx",
          //url: "data/Passo_dello_stelvio.gpx",
-         //url: "data/long_trail.gpx",
+         url: "data/long_trail.gpx",
          async: false,
          success : function(text)
          {
@@ -71,11 +72,29 @@ var options = {tolerance: 0.0085, highQuality: true};
 var simplified = turf.simplify(turf.lineString(targetRoute), options);
 // bezier transform to simplief
 var bezier = turf.bezierSpline(simplified,{sharpness:1})
+
+if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]])) * 2 > turf.length(turf.lineString(targetRoute))) {
+    // LINEAR TRACK
+    // linear distance between start and end * 2 > total route length (the2 factor is to ensure that almost-linear track is also recognized as linear)
+    console.log('linear track detected')
+    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5));
+    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
+    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
+    var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+    var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates;
+} else {
+    // LOOP TRACK
+    console.log('loop track detected')
+    var cameraRouteTrace = turf.polygonToLine(turf.rewind(turf.buffer(turf.convex(turf.lineString(targetRoute)),1),{reverse:true}));
+    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
+    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
+    var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+}
+
 //var cameraRoute = bezier.geometry.coordinates;
-var cameraRouteTrace = turf.polygonToLine(turf.rewind(turf.buffer(turf.convex(turf.lineString(targetRoute)),1),{reverse:true}));
-var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
-var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
-var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+
+
+
 
 console.log(cameraRoute);
 // add terrain, sky, and line layers once the style has loaded
@@ -86,7 +105,7 @@ map.addSource('mapbox-dem', {
 'tileSize': 512,
 'maxzoom': 14
 });
-map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 2.5 });
+map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
 map.addLayer({
 'id': 'sky',
 'type': 'sky',
