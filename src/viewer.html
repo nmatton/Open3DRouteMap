@@ -58,6 +58,30 @@ $.ajax({ type: "GET",
 
 
 var gpxjson = toGeoJSON.gpx(response);
+const speeds = [0];
+const alts = [gpxjson.features[0].geometry.coordinates[0][2]];
+console.log('computing speeds')
+for (var i = 1; i < gpxjson.features[0].geometry.coordinates.length; i++) {
+    var timeDiff = (new Date(gpxjson.features[0].properties.coordTimes[i]) - new Date(gpxjson.features[0].properties.coordTimes[i - 1]))/3600000 % 24; // time in hours
+    var coords1 = [gpxjson.features[0].geometry.coordinates[i][0],gpxjson.features[0].geometry.coordinates[i][1]];
+    var coords2 = [gpxjson.features[0].geometry.coordinates[i-1][0],gpxjson.features[0].geometry.coordinates[i-1][1]];
+    var distDiff = turf.distance(turf.point(coords1),turf.point(coords2)) // distance in kilometers
+    var speed = distDiff / timeDiff; // speed in km/h
+    if (speed > speeds[i-1] + 30 && i > 1) {
+        speed = speeds[i-1];
+        console.log('corrected speed at i :');
+        console.log(i);
+        console.log('computed speed was :')
+        console.log(distDiff / timeDiff)
+        console.log('corrected speed is ')
+        console.log(speeds[i-1])
+    }
+    speeds.push(speed);
+    alts.push(gpxjson.features[0].geometry.coordinates[i][2])
+}
+var indexMaxSpeed = speeds.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
+var indexMaxAlt = alts.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
+
 myroute = gpxjson.features[0].geometry.coordinates;
 var targetRoute = myroute;
 
@@ -92,6 +116,16 @@ style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
 
 
 // add markers
+
+//speed marker
+var markerMaxSpeed = new mapboxgl.Marker({ color: 'orange'})
+    .setLngLat([myroute[indexMaxSpeed][0],myroute[indexMaxSpeed][1]])
+    .addTo(map);
+// max altitude marker
+var markerMaxAlt = new mapboxgl.Marker({ color: 'magenta'})
+    .setLngLat([myroute[indexMaxAlt][0],myroute[indexMaxAlt][1]])
+    .addTo(map);
+
 //calculate markers position for cam
 var fquartercam = turf.along(turf.lineString(cameraRoute),
                             turf.length(turf.lineString(cameraRoute))/4);
@@ -241,30 +275,7 @@ layout: {
 });
 
 
-map.addSource('beziertrace', {
-type: 'geojson',
-data: {
-'type': 'Feature',
-'properties': {},
-'geometry': {
-'type': 'LineString',
-'coordinates': bezier.geometry.coordinates
-}
-}
-});
-map.addLayer({
-type: 'line',
-source: 'beziertrace',
-id: 'line4',
-paint: {
-'line-color': 'pink',
-'line-width': 5
-},
-layout: {
-'line-cap': 'round',
-'line-join': 'round'
-}
-});
+
 
 map.addSource('myroute', {
 type: 'geojson',
