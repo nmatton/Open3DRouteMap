@@ -9,6 +9,22 @@
 <style>
 body { margin: 0; padding: 0; }
 #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+.markerstart {
+  background-image: url('data/img/marker-start.png');
+  background-size: cover;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.markerfinish {
+  background-image: url('data/img/marker-finish.png');
+  background-size: cover;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -35,9 +51,10 @@ body { margin: 0; padding: 0; }
 // this is the path the camera will look at
 var response = '';
 $.ajax({ type: "GET",
-         url: "data/test2.gpx",
+         //url: "data/test2.gpx",
          //url: "data/Passo_dello_stelvio.gpx",
          //url: "data/long_trail.gpx",
+         url: "data/Sortie_cbae.gpx",
          async: false,
          success : function(text)
          {
@@ -61,8 +78,6 @@ var targetRoute = myroute;
 // simplify the target route
 var options = {tolerance: 0.0085, highQuality: true};
 var simplified = turf.simplify(turf.lineString(targetRoute), options);
-// bezier transform to simplief
-var bezier = turf.bezierSpline(simplified,{sharpness:1})
 
 if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]])) * 2 > turf.length(turf.lineString(targetRoute))) {
     // LINEAR TRACK
@@ -76,13 +91,13 @@ if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute
 } else {
     // LOOP TRACK
     console.log('loop track detected')
-    var cameraRouteTrace = turf.polygonToLine(turf.rewind(turf.buffer(turf.convex(turf.lineString(targetRoute)),1),{reverse:true}));
+    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));
     var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
     var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
     var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
 }
 
-//var cameraRoute = bezier.geometry.coordinates;
+
 
 var map = new mapboxgl.Map({
 container: 'map',
@@ -95,8 +110,85 @@ style: 'mapbox://styles/nmatton/ckr4xxvcg0hkx19mzverkky7s',
 interactive: false
 });
 
+// add markers
+//calculate markers position for cam
+var fquartercam = turf.along(turf.lineString(cameraRoute),
+                            turf.length(turf.lineString(cameraRoute))/4);
+var mquartercam = turf.along(turf.lineString(cameraRoute),
+                            turf.length(turf.lineString(cameraRoute))/2);
+var lquartercam = turf.along(turf.lineString(cameraRoute),
+                            turf.length(turf.lineString(cameraRoute))*3/4);
+//calculate markers position for route
+var fquarterroute = turf.along(turf.lineString(targetRoute),
+                            turf.length(turf.lineString(targetRoute))/4);
+var mquarterroute = turf.along(turf.lineString(targetRoute),
+                            turf.length(turf.lineString(targetRoute))/2);
+var lquarterroute = turf.along(turf.lineString(targetRoute),
+                            turf.length(turf.lineString(targetRoute))*3/4);
 
-console.log(cameraRoute);
+if (turf.distance(fquartercam.geometry.coordinates, lquarterroute.geometry.coordinates) < turf.distance(fquartercam.geometry.coordinates, fquarterroute.geometry.coordinates)) {
+    console.log('reversing')
+    // reverse path direction
+    cameraRoute = turf.rewind(turf.lineString(cameraRoute),{reverse:false}).geometry.coordinates;
+    //RE-calculate markers position for cam
+    var fquartercam = turf.along(turf.lineString(cameraRoute),
+                                turf.length(turf.lineString(cameraRoute))/4);
+    var mquartercam = turf.along(turf.lineString(cameraRoute),
+                                turf.length(turf.lineString(cameraRoute))/2);
+    var lquartercam = turf.along(turf.lineString(cameraRoute),
+                                turf.length(turf.lineString(cameraRoute))*3/4);
+}
+
+// first quarter
+var markerfqc = new mapboxgl.Marker({ color: 'red'})
+    .setLngLat(fquartercam.geometry.coordinates)
+    .addTo(map);
+var markerfqr = new mapboxgl.Marker({ color: 'red'})
+    .setLngLat(fquarterroute.geometry.coordinates)
+    .addTo(map);
+// mid-track
+var markermqc = new mapboxgl.Marker({ color: 'blue'})
+    .setLngLat(mquartercam.geometry.coordinates)
+    .addTo(map);
+var markermqr = new mapboxgl.Marker({ color: 'blue'})
+    .setLngLat(mquarterroute.geometry.coordinates)
+    .addTo(map);
+// last quarter-track
+var markerlqc = new mapboxgl.Marker({ color: 'green'})
+    .setLngLat(lquartercam.geometry.coordinates)
+    .addTo(map);
+var markerlqr = new mapboxgl.Marker({ color: 'green'})
+    .setLngLat(lquarterroute.geometry.coordinates)
+    .addTo(map);
+
+
+// add info of markers on the trace
+
+var startmarker = {
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [myroute[0][0],myroute[0][1]]
+    },
+    properties: {
+      title: 'start'
+    }
+  };
+
+var finishmarker = {
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]]
+    },
+    properties: {
+      title: 'finish'
+  }
+  };
+
+
+
+
 // add terrain, sky, and line layers once the style has loaded
 map.on('load', function () {
 map.addSource('mapbox-dem', {
@@ -143,15 +235,15 @@ layout: {
 });*/
 
 
-map.addSource('cameratrace', {
+/*map.addSource('cameratrace', {
 type: 'geojson',
 data: {
 'type': 'Feature',
 'properties': {},
 'geometry': {
-'type': 'LineString',
-'coordinates': cameraRoute
-}
+    'type': 'LineString',
+    'coordinates': cameraRoute
+    }
 }
 });
 map.addLayer({
@@ -159,14 +251,14 @@ type: 'line',
 source: 'cameratrace',
 id: 'line2',
 paint: {
-'line-color': 'green',
-'line-width': 5
-},
+    'line-color': 'green',
+    'line-width': 5
+    },
 layout: {
-'line-cap': 'round',
-'line-join': 'round'
-}
-});
+    'line-cap': 'round',
+    'line-join': 'round'
+    }
+});*/
 
 // add a dynamic trace line
 map.addSource('trace', { type: 'geojson', data: data });
@@ -205,7 +297,7 @@ map.addLayer({
 
 // wait for the terrain and sky to load before starting animation
 map.on('load', function () {
-var animationDuration = 150000;
+var animationDuration = 250000;
 var cameraAltitude = 6000;
 var cameraOffset = 0;
 // get the overall distance of each route so we can interpolate along them
@@ -213,6 +305,23 @@ var simplifiedRouteDistance = turf.lineDistance(simplified);
 var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
 var cameraRouteDistance = turf.lineDistance(turf.lineString(cameraRoute));
  
+// add the markers
+// START
+var el = document.createElement('div');
+el.className = 'markerstart';
+
+new mapboxgl.Marker(el)
+.setLngLat(startmarker.geometry.coordinates)
+.addTo(map);
+
+//END
+var el = document.createElement('div');
+el.className = 'markerfinish';
+
+new mapboxgl.Marker(el)
+.setLngLat(finishmarker.geometry.coordinates)
+.addTo(map);
+
 var start;
 console.log('start with blur 4 + pts + rewind')
 function frame(time) {
