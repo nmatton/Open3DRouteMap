@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.3.1/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.3.1/mapbox-gl.js"></script>
+<script src="js/togeojson.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script>
+
+    mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
+
+
+var response = '';
+$.ajax({ type: "GET",
+         //url: "data/test.gpx",
+         url: "data/Sortie_cbae.gpx",
+         //url: "data/Passo_dello_stelvio.gpx",
+         async: false,
+         success : function(text)
+         {
+             response = text;
+         }
+});
+var gpxjson = toGeoJSON.gpx(response);
+var myroute = gpxjson.features[0].geometry.coordinates;
+var sourcedata = {
+  type: 'geojson', //format of the source data
+  data: {
+    'type': 'Feature',
+    'properties': {},
+    'geometry': {
+      'type': 'LineString',
+      'coordinates': [myroute[0]]
+      }
+  }
+};
+gpxjson.features[0].geometry.coordinates = [myroute[0]];
+
+var map = new mapboxgl.Map({
+container: 'map',
+zoom: 10,
+center: [myroute[0][0],myroute[0][1]],
+style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
+});
+
+
+map.on('load', function () {
+    // adding source (where data comes from and in which format)
+    map.addSource('myroutesource', sourcedata);
+
+    // adding the layer (what to display on the map and how)
+    map.addLayer({
+      type: 'line',
+      source: 'myroutesource',
+      id: 'myroutelayer',
+      // some styling
+      paint: {
+        'line-color': 'yellow',
+        'line-width': 5
+        },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round'
+        }
+    });
+    let i = 1;
+    const timer = setInterval(() => {
+        if (i < myroute.length) {
+            gpxjson.features[0].geometry.coordinates.push(myroute[i]);
+            map.getSource('myroutesource').setData(gpxjson);
+            i++;
+        } else {
+            window.clearInterval(timer);
+        }
+    }, 10);
+});
+
+
+// wait for the terrain and sky to load before starting animation
+map.on('load', function () {
+    // some contant parameters
+    var animationDuration = 150000; // total length of the animation in milliseconds (150 seconds = 2.5 minutes)
+    var cameraAltitude = 6000; // altitude in meters of the camera
+    var cameraOffset = 0; // if we want to delay a bit the camera position relatively to activity path
+    // get the overall distance of each route so we can interpolate along them
+    var simplifiedRouteDistance = turf.lineDistance(simplified);
+    var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
+    var cameraRouteDistance = turf.lineDistance(turf.lineString(cameraRoute));
+    
+    // we define the callback function of requestAnimationFrame instance for the animation
+    var start;
+    function frame(time) {
+        if (!start) start = time;
+        // phase determines how far through the animation we are
+        var phase = (time - start) / animationDuration;
+
+        // phase is normalized between 0 (start) and 1 (end)
+        // when the animation is finished, reset start to loop the animation
+        if (phase > 1) {
+            // wait 1.5 seconds before looping and start over
+            setTimeout(function () {
+                start = 0.0;
+            }, 1500);
+        }
+
+        // use the phase to get a point that is the appropriate distance along the route
+        // this approach syncs the camera and route positions ensuring they move
+        // at roughly equal rates even if they don't contain the same number of points
+
+        // identify the point on the route to look at
+        var alongRoute = turf.along(turf.lineString(targetRoute),
+                                    routeDistance * phase
+                                    )).geometry.coordinates;
+        if (phase>0) {
+            // update trace
+            data = turf.lineSliceAlong(turf.lineString(targetRoute),
+                                    0,
+                                    routeDistance * phase);
+            map.getSource('trace').setData(data);
+        }
+        // retrieve the position of the camera
+        if (phase > cameraOffset) {
+            var dist = cameraRouteDistance * (phase - cameraOffset);
+        } else {
+            var dist = 0;
+        }
+        var alongCamera = turf.along(
+            turf.lineString(cameraRoute),
+            dist
+            ).geometry.coordinates;
+
+        var camera = map.getFreeCameraOptions();
+
+        // set the position and altitude of the camera
+        camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+        {
+        lng: alongCamera[0],
+        lat: alongCamera[1]
+        },
+        cameraAltitude
+        );
+
+        // tell the camera to look at a point along the route
+        camera.lookAtPoint({
+        lng: alongRoute[0],
+        lat: alongRoute[1]
+        });
+
+        // update camera position and view angle
+        map.setFreeCameraOptions(camera);
+
+
+        window.requestAnimationFrame(frame);
+    }
+    
+    window.requestAnimationFrame(frame); //https://developer.mozilla.org/fr/docs/Web/API/DOMHighResTimeStamp
+});
+
+// map.addControl(new mapboxgl.NavigationControl()); // disable the control button (we do not need it anymore)
+</script>
+
+</body>
+</html>

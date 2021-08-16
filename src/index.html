@@ -25,19 +25,152 @@ body { margin: 0; padding: 0; }
   border-radius: 50%;
   cursor: pointer;
 }
+#custom-button {
+  padding: 10px;
+  color: white;
+  background-color: #009578;
+  border: 1px solid #000;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+#custom-button:hover {
+  background-color: #00b28f;
+}
+
+#custom-text {
+  margin-left: 10px;
+  font-family: sans-serif;
+  color: #aaa;
+}
+
+/* Style the button that is used to open and close the collapsible content */
+.collapsible {
+  background-color: #eee;
+  color: #444;
+  cursor: pointer;
+  padding: 18px;
+  width: 100%;
+  border: none;
+  text-align: left;
+  outline: none;
+  font-size: 15px;
+}
+
+/* Add a background color to the button if it is clicked on (add the .active class with JS), and when you move the mouse over it (hover) */
+.active, .collapsible:hover {
+  background-color: #ccc;
+}
+
+/* Style the collapsible content. Note: hidden by default */
+.content {
+  padding: 0 18px;
+  display: none;
+  overflow: hidden;
+  background-color: #f1f1f1;
+}
+
+.upload-box {
+  width: 360px;
+  height: 250px;
+  padding: 0px;
+  position: absolute;
+  top : 10px;
+  left : 10px;
+}
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div class="upload-box">
+  <button type="button" class="collapsible">Upload your route</button>
+  <div class="content">
+    <form method="post" enctype="multipart/form-data">
+    <input type="file" id="real-file" hidden="hidden" />
+
+  <button type="button" id="custom-button">CHOOSE A GPX FILE
+      </button>
+      <span id="custom-text">No file chosen, yet.</span> <br>
+      <input id="start-button" type="submit" value="Start the movie!" name="submit" style="visibility: hidden"/>
+    </form>
+
+  </div>
+</div>
+
+
  
 <script src="js/togeojson.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 <script>
-    // TO MAKE THE MAP APPEAR YOU MUST
-    // ADD YOUR ACCESS TOKEN FROM
-    // https://account.mapbox.com
-    mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
+// CUSTOM TRACK LOADING
+const realFileBtn = document.getElementById("real-file");
+const customBtn = document.getElementById("custom-button");
+const customTxt = document.getElementById("custom-text");
+const startBtn = document.getElementById("start-button");
+
+// file selection button
+customBtn.addEventListener("click", function() {
+  realFileBtn.click();
+});
+
+realFileBtn.addEventListener("change", function() {
+  if (realFileBtn.value) {
+    customTxt.innerHTML = realFileBtn.value.match(
+      /[\/\\]([\w\d\s\.\-\(\)]+)$/
+    )[1];
+    startBtn.style.visibility = "visible";
+  } else {
+    customTxt.innerHTML = "No file chosen, yet.";
+  }
+});
+
+// collapsible box
+var coll = document.getElementsByClassName("collapsible");
+var i;
+
+for (i = 0; i < coll.length; i++) {
+  coll[i].addEventListener("click", function() {
+    this.classList.toggle("active");
+    var content = this.nextElementSibling;
+    if (content.style.display === "block") {
+      content.style.display = "none";
+    } else {
+      content.style.display = "block";
+    }
+  });
+}
+
+
+// form processing
+const url = 'process.php'
+const form = document.querySelector('form')
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault()
+
+  const files = document.querySelector('[type=file]').files
+  const formData = new FormData()
+
+  for (let i = 0; i < files.length; i++) {
+    let file = files[i]
+
+    formData.append('files[]', file)
+  }
+
+  fetch(url, {
+    method: 'POST',
+    body: formData,
+  }).then((response) => {
+    console.log(response)
+  })
+})
+</script>
+<script>
+// TO MAKE THE MAP APPEAR YOU MUST
+// ADD YOUR ACCESS TOKEN FROM
+// https://account.mapbox.com
+mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
 
  
 // fetch gpx route and convert to json
@@ -46,7 +179,8 @@ $.ajax({ type: "GET",
          //url: "data/test2.gpx",
          //url: "data/Passo_dello_stelvio.gpx",
          //url: "data/long_trail.gpx",
-         url: "data/Sortie_cbae.gpx",
+         //url: "data/Sortie_cbae.gpx",
+         url: "uploads/V_lo_du_matin.gpx",
          async: false,
          success : function(text)
          {
@@ -67,12 +201,6 @@ for (var i = 1; i < gpxjson.features[0].geometry.coordinates.length; i++) {
     var speed = distDiff / timeDiff; // speed in km/h
     if (speed > speeds[i-1] + 30 && i > 1) {
         speed = speeds[i-1];
-        console.log('corrected speed at i :');
-        console.log(i);
-        console.log('computed speed was :')
-        console.log(distDiff / timeDiff)
-        console.log('corrected speed is ')
-        console.log(speeds[i-1])
     }
     speeds.push(speed);
     alts.push(gpxjson.features[0].geometry.coordinates[i][2])
@@ -99,23 +227,23 @@ var targetRoute = myroute;
 var options = {tolerance: 0.0085, highQuality: true};
 var simplified = turf.simplify(turf.lineString(targetRoute), options);
 
-// Compute the camera path, a more smooth and distant path to look at the trace
+// Compute the camera path: a more smooth and distant path to look at the trace
 if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]])) * 2 > turf.length(turf.lineString(targetRoute))) {
     // LINEAR TRACK
-    // linear distance between start and end * 2 > total route length (the2 factor is to ensure that almost-linear track is also recognized as linear)
+    // linear distance between start and end * 2 > total route length (the 2 factor is to ensure that almost-linear track is also recognized as linear)
     console.log('linear track detected')
-    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5));
-    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
-    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
-    var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
-    var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates;
+    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5)); // get a buffered line around the target route
+    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]])) // identify the closest point between the start of the target route and the camera path (buffer line)
+    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
+    var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
+    var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates; // take the first half of the camera path (because it's a linear track), and simplify the line to avoid scattering
 } else {
     // LOOP TRACK
     console.log('loop track detected')
-    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));
-    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))
-    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates;
-    var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates);
+    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));  // get a buffered line around the target route
+    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))// identify the closest point between the start of the target route and the camera path (buffer line)
+    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
+    var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
 
     //calculate first and last quarter position of the cam and route path
     // in order to check if both track are going on the same direction (clock-wise vs. counterclock-wise)
@@ -273,6 +401,9 @@ map.addLayer({
 
 
 });
+
+
+
 
 // wait for the terrain and sky to load before starting animation
 map.on('load', function () {

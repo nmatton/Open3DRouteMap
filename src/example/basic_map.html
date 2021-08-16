@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.3.1/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.3.1/mapbox-gl.js"></script>
+<script src="js/togeojson.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script>
+
+    mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
+
+
+var response = '';
+$.ajax({ type: "GET",
+         //url: "data/test.gpx",
+         url: "data/Sortie_cbae.gpx",
+         //url: "data/Passo_dello_stelvio.gpx",
+         async: false,
+         success : function(text)
+         {
+             response = text;
+         }
+});
+var gpxjson = toGeoJSON.gpx(response);
+var myroute = gpxjson.features[0].geometry.coordinates;
+
+var map = new mapboxgl.Map({
+container: 'map',
+zoom: 9,
+center: [myroute[0][0],myroute[0][1]],
+style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd'
+});
+
+
+map.on('load', function () {
+    // adding source (where data comes from and in which format)
+    var sourcedata = {
+      type: 'geojson', //format of the source data
+      data: {
+        'type': 'Feature',
+        'properties': {},
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': myroute
+          }
+      }
+    };
+    map.addSource('myroutesource', sourcedata);
+
+    // adding the layer (what to display on the map and how)
+    map.addLayer({
+      type: 'line',
+      source: 'myroutesource',
+      id: 'myroutelayer',
+      // some styling
+      paint: {
+        'line-color': 'yellow',
+        'line-width': 5
+        },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round'
+        }
+    });
+});
+
+map.addControl(new mapboxgl.NavigationControl());
+</script>
+
+</body>
+</html>
