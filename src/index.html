@@ -163,355 +163,381 @@ form.addEventListener('submit', (e) => {
     body: formData,
   }).then((response) => {
     console.log(response)
+    var filePath = 'uploads/' + realFileBtn.value.match(
+      /[\/\\]([\w\d\s\.\-\(\)]+)$/
+    )[1];
+    console.log('retrieving result for '+filePath);
+    var res = fetchAndConvertGpx(filePath);
+    console.log('result json :');
+    console.log(res);
+    startAnimation(res);
+
   })
 })
-</script>
-<script>
+
 // TO MAKE THE MAP APPEAR YOU MUST
 // ADD YOUR ACCESS TOKEN FROM
 // https://account.mapbox.com
 mapboxgl.accessToken = 'pk.eyJ1Ijoibm1hdHRvbiIsImEiOiJja2wxMzRzc3MwY2FzMnFvNGJ6a2FvZmFhIn0.iZJi560O2CEzv-zaNlvYOg';
 
+var res = fetchAndConvertGpx('uploads/V_lo_du_matin.gpx');
+
+function fetchAndConvertGpx(inUrl) {
+  
+  // fetch gpx route and convert to json
+  var response = '';
+  $.ajax({ type: "GET",
+          url: inUrl,
+          async: false, // this is bad, but no other solution found
+          success : function(text)
+          {
+              response = text;
+          }
+  });
+  var gpxjson = toGeoJSON.gpx(response);
+  return gpxjson;
+
+}
+
+startAnimation(res);
+
+
+function startAnimation(gpxjson) {
+  
+
+
+  // compute speed (and clean 'outliers')
+  const speeds = [0];
+  const alts = [gpxjson.features[0].geometry.coordinates[0][2]];
+  if ('coordTimes' in gpxjson.features[0].properties){
+    // only if speed info available
+    console.log('computing speeds')
+    for (var i = 1; i < gpxjson.features[0].geometry.coordinates.length; i++) {
+        var timeDiff = (new Date(gpxjson.features[0].properties.coordTimes[i]) - new Date(gpxjson.features[0].properties.coordTimes[i - 1]))/3600000 % 24; // time in hours
+        var coords1 = [gpxjson.features[0].geometry.coordinates[i][0],gpxjson.features[0].geometry.coordinates[i][1]];
+        var coords2 = [gpxjson.features[0].geometry.coordinates[i-1][0],gpxjson.features[0].geometry.coordinates[i-1][1]];
+        var distDiff = turf.distance(turf.point(coords1),turf.point(coords2)) // distance in kilometers
+        var speed = distDiff / timeDiff; // speed in km/h
+        if (speed > speeds[i-1] + 30 && i > 1) {
+            speed = speeds[i-1];
+        }
+        speeds.push(speed);
+        alts.push(gpxjson.features[0].geometry.coordinates[i][2])
+    }
+
+    // find max values
+    var indexMaxSpeed = speeds.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
+  }
  
-// fetch gpx route and convert to json
-var response = '';
-$.ajax({ type: "GET",
-         //url: "data/test2.gpx",
-         //url: "data/Passo_dello_stelvio.gpx",
-         //url: "data/long_trail.gpx",
-         //url: "data/Sortie_cbae.gpx",
-         url: "uploads/V_lo_du_matin.gpx",
-         async: false,
-         success : function(text)
-         {
-             response = text;
-         }
-});
+  var indexMaxAlt = alts.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
 
+  myroute = gpxjson.features[0].geometry.coordinates;
 
-var gpxjson = toGeoJSON.gpx(response);
-const speeds = [0];
-const alts = [gpxjson.features[0].geometry.coordinates[0][2]];
-console.log('computing speeds')
-for (var i = 1; i < gpxjson.features[0].geometry.coordinates.length; i++) {
-    var timeDiff = (new Date(gpxjson.features[0].properties.coordTimes[i]) - new Date(gpxjson.features[0].properties.coordTimes[i - 1]))/3600000 % 24; // time in hours
-    var coords1 = [gpxjson.features[0].geometry.coordinates[i][0],gpxjson.features[0].geometry.coordinates[i][1]];
-    var coords2 = [gpxjson.features[0].geometry.coordinates[i-1][0],gpxjson.features[0].geometry.coordinates[i-1][1]];
-    var distDiff = turf.distance(turf.point(coords1),turf.point(coords2)) // distance in kilometers
-    var speed = distDiff / timeDiff; // speed in km/h
-    if (speed > speeds[i-1] + 30 && i > 1) {
-        speed = speeds[i-1];
-    }
-    speeds.push(speed);
-    alts.push(gpxjson.features[0].geometry.coordinates[i][2])
-}
-var indexMaxSpeed = speeds.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
-var indexMaxAlt = alts.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
+  // initialize data that will be shown on map
 
-myroute = gpxjson.features[0].geometry.coordinates;
-
-// initialize data that will be shown on map
-
-var data = {
-            'type': 'LineString',
-            'coordinates': [myroute[0]]
-            };
-var pts_data = {
-            'type': 'Point',
-            'coordinates': [myroute[0]]
-            };
-// this the path of the route to follow
-var targetRoute = myroute;
-// simplify the target route -> will be used for "route to look at" and avoid
-// any jerks for small suddden direction changes on the real route
-var options = {tolerance: 0.0085, highQuality: true};
-var simplified = turf.simplify(turf.lineString(targetRoute), options);
-
-// Compute the camera path: a more smooth and distant path to look at the trace
-if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]])) * 2 > turf.length(turf.lineString(targetRoute))) {
-    // LINEAR TRACK
-    // linear distance between start and end * 2 > total route length (the 2 factor is to ensure that almost-linear track is also recognized as linear)
-    console.log('linear track detected')
-    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5)); // get a buffered line around the target route
-    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]])) // identify the closest point between the start of the target route and the camera path (buffer line)
-    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
-    var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
-    var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates; // take the first half of the camera path (because it's a linear track), and simplify the line to avoid scattering
-} else {
-    // LOOP TRACK
-    console.log('loop track detected')
-    var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));  // get a buffered line around the target route
-    var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))// identify the closest point between the start of the target route and the camera path (buffer line)
-    var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
-    var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
-
-    //calculate first and last quarter position of the cam and route path
-    // in order to check if both track are going on the same direction (clock-wise vs. counterclock-wise)
-    // first quarter of the camera path
-    var fquartercam = turf.along(turf.lineString(cameraRoute),
-                                turf.length(turf.lineString(cameraRoute))/4);
-    // first and last quarters of trace path
-    var fquarterroute = turf.along(turf.lineString(targetRoute),
-                                turf.length(turf.lineString(targetRoute))/4);
-    var lquarterroute = turf.along(turf.lineString(targetRoute),
-                                turf.length(turf.lineString(targetRoute))*3/4);
-    if (turf.distance(fquartercam.geometry.coordinates, lquarterroute.geometry.coordinates) < turf.distance(fquartercam.geometry.coordinates, fquarterroute.geometry.coordinates)) {
-        // if distance between first quarter of the camera and last quarter of the
-        // trace is smaller than first quarter of the camera and first quarter of the
-        // trace, it means that the camera path need to be reversed
-        console.log('reversing')
-        // reverse path direction
-        cameraRoute = turf.rewind(turf.lineString(cameraRoute),{reverse:false}).geometry.coordinates;
-        /*for dev
-        //RE-calculate markers position for cam
-        var fquartercam = turf.along(turf.lineString(cameraRoute),
-                                    turf.length(turf.lineString(cameraRoute))/4);
-        var mquartercam = turf.along(turf.lineString(cameraRoute),
-                                    turf.length(turf.lineString(cameraRoute))/2);
-        var lquartercam = turf.along(turf.lineString(cameraRoute),
-                                    turf.length(turf.lineString(cameraRoute))*3/4);*/
-    }
-}
-
-
-// Initialize the mapbox enviornment
-var map = new mapboxgl.Map({
-container: 'map',
-zoom: 11.53,
-center: [myroute[0][0],myroute[0][1]],
-pitch: 35,
-bearing: 180,
-//style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
-style: 'mapbox://styles/nmatton/ckr4xxvcg0hkx19mzverkky7s',
-interactive: false
-});
-
-//speed marker
-var markerMaxSpeed = new mapboxgl.Marker({ color: 'green'})
-    .setLngLat([myroute[indexMaxSpeed][0],myroute[indexMaxSpeed][1]])
-    .addTo(map);
-// max altitude marker
-var markerMaxAlt = new mapboxgl.Marker({ color: 'red'})
-    .setLngLat([myroute[indexMaxAlt][0],myroute[indexMaxAlt][1]])
-    .addTo(map);
-
-/*for dev
-// add markers along the route and camera path
-// first quarter
-var markerfqc = new mapboxgl.Marker({ color: 'red'})
-    .setLngLat(fquartercam.geometry.coordinates)
-    .addTo(map);
-var markerfqr = new mapboxgl.Marker({ color: 'red'})
-    .setLngLat(fquarterroute.geometry.coordinates)
-    .addTo(map);
-// mid-track
-var markermqc = new mapboxgl.Marker({ color: 'blue'})
-    .setLngLat(mquartercam.geometry.coordinates)
-    .addTo(map);
-var markermqr = new mapboxgl.Marker({ color: 'blue'})
-    .setLngLat(mquarterroute.geometry.coordinates)
-    .addTo(map);
-// last quarter-track
-var markerlqc = new mapboxgl.Marker({ color: 'green'})
-    .setLngLat(lquartercam.geometry.coordinates)
-    .addTo(map);
-var markerlqr = new mapboxgl.Marker({ color: 'green'})
-    .setLngLat(lquarterroute.geometry.coordinates)
-    .addTo(map);*/
-
-
-// add info of markers on the trace
-
-var startmarker = {
-    type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [myroute[0][0],myroute[0][1]]
-    },
-    properties: {
-      title: 'start'
-    }
-  };
-
-var finishmarker = {
-    type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]]
-    },
-    properties: {
-      title: 'finish'
-  }
-  };
-
-
-
-
-// add terrain, sky, and line layers once the style has loaded
-map.on('load', function () {
-  map.addSource('mapbox-dem', {
-  'type': 'raster-dem',
-  'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
-  'tileSize': 512,
-  'maxzoom': 14
-  });
-  map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
-
-
-
-  // add a dynamic trace line
-  map.addSource('trace', { type: 'geojson', data: data });
-  map.addLayer({
-      'id': 'trace',
-      'type': 'line',
-      'source': 'trace',
-      'paint': {
-          'line-color': 'yellow',
-          'line-opacity': 0.75,
-          'line-width': 8,
-          'line-blur' : 4
-      }
-  });
-
-
-  // add main dot of position
-  map.addSource('point', {
-  'type': 'geojson',
-  'data': pts_data
-  });
-
-  map.addLayer({
-  'id': 'point',
-  'source': 'point',
-  'type': 'circle',
-  'paint': {
-      'circle-radius': 15,
-      'circle-color': 'yellow',
-      'circle-blur': 0.75
-      }
-  });
-});
-
-
-
-
-// wait for the terrain and sky to load before starting animation
-map.on('load', function () {
-  var animationDuration = 250000;
-  var cameraAltitude = 6000;
-  var cameraOffset = 0;
-  // get the overall distance of each route so we can interpolate along them
-  var simplifiedRouteDistance = turf.lineDistance(simplified);
-  var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
-  var cameraRouteDistance = turf.lineDistance(turf.lineString(cameraRoute));
-  
-  // add the markers
-  // START
-  var el = document.createElement('div');
-  el.className = 'markerstart';
-
-  new mapboxgl.Marker(el)
-  .setLngLat(startmarker.geometry.coordinates)
-  .addTo(map);
-
-  //END
-  var el = document.createElement('div');
-  el.className = 'markerfinish';
-
-  new mapboxgl.Marker(el)
-  .setLngLat(finishmarker.geometry.coordinates)
-  .addTo(map);
-
-  var start;
-  console.log('start with blur 4 + pts + rewind')
-  function frame(time) {
-      if (!start) start = time;
-      // phase determines how far through the animation we are
-      var phase = (time - start) / animationDuration;
-
-      // phase is normalized between 0 (start) and 1 (end)
-      // when the animation is finished, reset start to loop the animation
-      if (phase > 1) {
-          // wait 1.5 seconds before looping
-          setTimeout(function () {
-              start = 0.0;
-          }, 1500);
-      }
-
-      // use the phase to get a point that is the appropriate distance along the route
-      // this approach syncs the camera and route positions ensuring they move
-      // at roughly equal rates even if they don't contain the same number of points
-
-      // identify the point on the "simplied" route to look at
-      // a simplified version of the road is used here to avoid camera jerks at
-      // small changes of direction
-      var alongRoute = turf.midpoint(turf.along(
-                                          turf.lineString(targetRoute),
-                                          routeDistance * phase
-                                          ),
-                                      turf.along(
-                                          simplified,
-                                          simplifiedRouteDistance * phase
-                                          )).geometry.coordinates;
-      /*var alongRoute = turf.along(
-          turf.lineString(targetRoute),
-          routeDistance * phase
-          ).geometry.coordinates;*/
-      // retrieve the linepath from the start to the point of the route to look at
-      if (phase>0) {
-          // update trace
-          data = turf.lineSliceAlong(turf.lineString(targetRoute),
-                                    0,
-                                    routeDistance * phase);
-          map.getSource('trace').setData(data);
-          // update point
-          pts_data = turf.along(turf.lineString(targetRoute),
-                                routeDistance * phase
-                                ).geometry.coordinates;
-          //console.log(pts_data);
-          map.getSource('point').setData({
+  var data = {
+              'type': 'LineString',
+              'coordinates': [myroute[0]]
+              };
+  var pts_data = {
               'type': 'Point',
-              'coordinates': pts_data
-              });
+              'coordinates': [myroute[0]]
+              };
+  // this the path of the route to follow
+  var targetRoute = myroute;
+  // simplify the target route -> will be used for "route to look at" and avoid
+  // any jerks for small suddden direction changes on the real route
+  var options = {tolerance: 0.0085, highQuality: true};
+  var simplified = turf.simplify(turf.lineString(targetRoute), options);
 
+  // Compute the camera path: a more smooth and distant path to look at the trace
+  if (turf.distance(turf.point([myroute[0][0],myroute[0][1]]), turf.point([myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]])) * 2 > turf.length(turf.lineString(targetRoute))) {
+      // LINEAR TRACK
+      // linear distance between start and end * 2 > total route length (the 2 factor is to ensure that almost-linear track is also recognized as linear)
+      console.log('linear track detected')
+      var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.lineString(targetRoute),5)); // get a buffered line around the target route
+      var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]])) // identify the closest point between the start of the target route and the camera path (buffer line)
+      var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
+      var cameraRoutefull = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
+      var cameraRoute = turf.simplify(turf.lineSliceAlong(turf.lineString(cameraRoutefull), 0, turf.length(turf.lineString(cameraRoutefull))/2),{tolerance: 0.01, highQuality: false}).geometry.coordinates; // take the first half of the camera path (because it's a linear track), and simplify the line to avoid scattering
+  } else {
+      // LOOP TRACK
+      console.log('loop track detected')
+      var cameraRouteTrace = turf.polygonToLine(turf.buffer(turf.convex(turf.lineString(targetRoute)),1));  // get a buffered line around the target route
+      var cameraRouteTraceStart = turf.nearestPointOnLine(cameraRouteTrace, turf.point([myroute[0][0],myroute[0][1]]))// identify the closest point between the start of the target route and the camera path (buffer line)
+      var cameraRoutepart1 = turf.lineSliceAlong(cameraRouteTrace, cameraRouteTraceStart.properties.location, turf.length(cameraRouteTrace)).geometry.coordinates; // cut the camera path (buffer line) at the closest point from the start of the target route and take the remainding of tail of the path from the cutting point
+      var cameraRoute = cameraRoutepart1.concat(turf.lineSliceAlong(cameraRouteTrace, 0, cameraRouteTraceStart.properties.location).geometry.coordinates); // add the rest of the camera path at the cutted camera path
+
+      //calculate first and last quarter position of the cam and route path
+      // in order to check if both track are going on the same direction (clock-wise vs. counterclock-wise)
+      // first quarter of the camera path
+      var fquartercam = turf.along(turf.lineString(cameraRoute),
+                                  turf.length(turf.lineString(cameraRoute))/4);
+      // first and last quarters of trace path
+      var fquarterroute = turf.along(turf.lineString(targetRoute),
+                                  turf.length(turf.lineString(targetRoute))/4);
+      var lquarterroute = turf.along(turf.lineString(targetRoute),
+                                  turf.length(turf.lineString(targetRoute))*3/4);
+      if (turf.distance(fquartercam.geometry.coordinates, lquarterroute.geometry.coordinates) < turf.distance(fquartercam.geometry.coordinates, fquarterroute.geometry.coordinates)) {
+          // if distance between first quarter of the camera and last quarter of the
+          // trace is smaller than first quarter of the camera and first quarter of the
+          // trace, it means that the camera path need to be reversed
+          console.log('reversing')
+          // reverse path direction
+          cameraRoute = turf.rewind(turf.lineString(cameraRoute),{reverse:false}).geometry.coordinates;
+          /*for dev
+          //RE-calculate markers position for cam
+          var fquartercam = turf.along(turf.lineString(cameraRoute),
+                                      turf.length(turf.lineString(cameraRoute))/4);
+          var mquartercam = turf.along(turf.lineString(cameraRoute),
+                                      turf.length(turf.lineString(cameraRoute))/2);
+          var lquartercam = turf.along(turf.lineString(cameraRoute),
+                                      turf.length(turf.lineString(cameraRoute))*3/4);*/
       }
-      // retrieve the position of the camera
-      if (phase > cameraOffset) {
-          var dist = cameraRouteDistance * (phase - cameraOffset);
-      } else {
-          var dist = 0;
-      }
-      var alongCamera = turf.along(
-          turf.lineString(cameraRoute),
-          dist
-          ).geometry.coordinates;
-
-      var camera = map.getFreeCameraOptions();
-
-      // set the position and altitude of the camera
-      camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
-      {
-      lng: alongCamera[0],
-      lat: alongCamera[1]
-      },
-      cameraAltitude
-      );
-
-      // tell the camera to look at a point along the route
-      camera.lookAtPoint({
-      lng: alongRoute[0],
-      lat: alongRoute[1]
-      });
-
-      // update camera position and view angle
-      map.setFreeCameraOptions(camera);
-
-
-      window.requestAnimationFrame(frame);
   }
-  
-  window.requestAnimationFrame(frame); //https://developer.mozilla.org/fr/docs/Web/API/DOMHighResTimeStamp
-});
+
+
+  // Initialize the mapbox enviornment
+  var map = new mapboxgl.Map({
+  container: 'map',
+  zoom: 11.53,
+  center: [myroute[0][0],myroute[0][1]],
+  pitch: 35,
+  bearing: 180,
+  //style: 'mapbox://styles/mapbox-map-design/ckhqrbxlc1awj19svtb92m0bd',
+  style: 'mapbox://styles/nmatton/ckr4xxvcg0hkx19mzverkky7s',
+  interactive: false
+  });
+
+  //speed marker
+  if ('coordTimes' in gpxjson.features[0].properties){
+  var markerMaxSpeed = new mapboxgl.Marker({ color: 'green'})
+      .setLngLat([myroute[indexMaxSpeed][0],myroute[indexMaxSpeed][1]])
+      .addTo(map);
+  }
+  // max altitude marker
+  var markerMaxAlt = new mapboxgl.Marker({ color: 'red'})
+      .setLngLat([myroute[indexMaxAlt][0],myroute[indexMaxAlt][1]])
+      .addTo(map);
+
+  /*for dev
+  // add markers along the route and camera path
+  // first quarter
+  var markerfqc = new mapboxgl.Marker({ color: 'red'})
+      .setLngLat(fquartercam.geometry.coordinates)
+      .addTo(map);
+  var markerfqr = new mapboxgl.Marker({ color: 'red'})
+      .setLngLat(fquarterroute.geometry.coordinates)
+      .addTo(map);
+  // mid-track
+  var markermqc = new mapboxgl.Marker({ color: 'blue'})
+      .setLngLat(mquartercam.geometry.coordinates)
+      .addTo(map);
+  var markermqr = new mapboxgl.Marker({ color: 'blue'})
+      .setLngLat(mquarterroute.geometry.coordinates)
+      .addTo(map);
+  // last quarter-track
+  var markerlqc = new mapboxgl.Marker({ color: 'green'})
+      .setLngLat(lquartercam.geometry.coordinates)
+      .addTo(map);
+  var markerlqr = new mapboxgl.Marker({ color: 'green'})
+      .setLngLat(lquarterroute.geometry.coordinates)
+      .addTo(map);*/
+
+
+  // add info of markers on the trace
+
+  var startmarker = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [myroute[0][0],myroute[0][1]]
+      },
+      properties: {
+        title: 'start'
+      }
+    };
+
+  var finishmarker = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [myroute[myroute.length - 1][0],myroute[myroute.length - 1][1]]
+      },
+      properties: {
+        title: 'finish'
+    }
+    };
+
+
+
+
+  // add terrain, sky, and line layers once the style has loaded
+  map.on('load', function () {
+    map.addSource('mapbox-dem', {
+    'type': 'raster-dem',
+    'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+    'tileSize': 512,
+    'maxzoom': 14
+    });
+    map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+
+
+
+    // add a dynamic trace line
+    map.addSource('trace', { type: 'geojson', data: data });
+    map.addLayer({
+        'id': 'trace',
+        'type': 'line',
+        'source': 'trace',
+        'paint': {
+            'line-color': 'yellow',
+            'line-opacity': 0.75,
+            'line-width': 8,
+            'line-blur' : 4
+        }
+    });
+
+
+    // add main dot of position
+    map.addSource('point', {
+    'type': 'geojson',
+    'data': pts_data
+    });
+
+    map.addLayer({
+    'id': 'point',
+    'source': 'point',
+    'type': 'circle',
+    'paint': {
+        'circle-radius': 15,
+        'circle-color': 'yellow',
+        'circle-blur': 0.75
+        }
+    });
+  });
+
+
+
+
+  // wait for the terrain and sky to load before starting animation
+  map.on('load', function () {
+    var animationDuration = 250000;
+    var cameraAltitude = 6000;
+    var cameraOffset = 0;
+    // get the overall distance of each route so we can interpolate along them
+    var simplifiedRouteDistance = turf.lineDistance(simplified);
+    var routeDistance = turf.lineDistance(turf.lineString(targetRoute));
+    var cameraRouteDistance = turf.lineDistance(turf.lineString(cameraRoute));
+    
+    // add the markers
+    // START
+    var el = document.createElement('div');
+    el.className = 'markerstart';
+
+    new mapboxgl.Marker(el)
+    .setLngLat(startmarker.geometry.coordinates)
+    .addTo(map);
+
+    //END
+    var el = document.createElement('div');
+    el.className = 'markerfinish';
+
+    new mapboxgl.Marker(el)
+    .setLngLat(finishmarker.geometry.coordinates)
+    .addTo(map);
+
+    var start;
+    console.log('start with blur 4 + pts + rewind')
+    function frame(time) {
+        if (!start) start = time;
+        // phase determines how far through the animation we are
+        var phase = (time - start) / animationDuration;
+
+        // phase is normalized between 0 (start) and 1 (end)
+        // when the animation is finished, reset start to loop the animation
+        if (phase > 1) {
+            // wait 1.5 seconds before looping
+            setTimeout(function () {
+                start = 0.0;
+            }, 1500);
+        }
+
+        // use the phase to get a point that is the appropriate distance along the route
+        // this approach syncs the camera and route positions ensuring they move
+        // at roughly equal rates even if they don't contain the same number of points
+
+        // identify the point on the "simplied" route to look at
+        // a simplified version of the road is used here to avoid camera jerks at
+        // small changes of direction
+        var alongRoute = turf.midpoint(turf.along(
+                                            turf.lineString(targetRoute),
+                                            routeDistance * phase
+                                            ),
+                                        turf.along(
+                                            simplified,
+                                            simplifiedRouteDistance * phase
+                                            )).geometry.coordinates;
+        /*var alongRoute = turf.along(
+            turf.lineString(targetRoute),
+            routeDistance * phase
+            ).geometry.coordinates;*/
+        // retrieve the linepath from the start to the point of the route to look at
+        if (phase>0) {
+            // update trace
+            data = turf.lineSliceAlong(turf.lineString(targetRoute),
+                                      0,
+                                      routeDistance * phase);
+            map.getSource('trace').setData(data);
+            // update point
+            pts_data = turf.along(turf.lineString(targetRoute),
+                                  routeDistance * phase
+                                  ).geometry.coordinates;
+            //console.log(pts_data);
+            map.getSource('point').setData({
+                'type': 'Point',
+                'coordinates': pts_data
+                });
+
+        }
+        // retrieve the position of the camera
+        if (phase > cameraOffset) {
+            var dist = cameraRouteDistance * (phase - cameraOffset);
+        } else {
+            var dist = 0;
+        }
+        var alongCamera = turf.along(
+            turf.lineString(cameraRoute),
+            dist
+            ).geometry.coordinates;
+
+        var camera = map.getFreeCameraOptions();
+
+        // set the position and altitude of the camera
+        camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+        {
+        lng: alongCamera[0],
+        lat: alongCamera[1]
+        },
+        cameraAltitude
+        );
+
+        // tell the camera to look at a point along the route
+        camera.lookAtPoint({
+        lng: alongRoute[0],
+        lat: alongRoute[1]
+        });
+
+        // update camera position and view angle
+        map.setFreeCameraOptions(camera);
+
+
+        window.requestAnimationFrame(frame);
+    }
+    
+    window.requestAnimationFrame(frame); //https://developer.mozilla.org/fr/docs/Web/API/DOMHighResTimeStamp
+  });
+};
 </script>
  
 </body>
