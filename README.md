@@ -7,7 +7,7 @@ The goal of the project is to propose a decent **free and open** alternative to 
 
 # Preview
 
-The current version is availalbe as preview there : https://apiscore.be/3drm/
+The current version is ~~availalbe as preview there~~ no more available. Just run your own :)
 
 # Contribute
 
